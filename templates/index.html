@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>LiveScore</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <div class="container">
+    <header class="topbar">
+      <div class="brand">
+        <span class="brand-dot"></span>
+        <span>LiveScore</span>
+      </div>
+      <div id="conn" class="pill pill-off">Disconnesso</div>
+    </header>
+
+    <main id="grid" class="grid"></main>
+  </div>
+
+<script>
+  const grid = document.getElementById("grid");
+  const conn = document.getElementById("conn");
+
+  let serverTime = 0;
+  const matchMap = new Map();
+
+  function statusLabel(s){
+    if(s === "live") return "LIVE";
+    if(s === "scheduled") return "PRE";
+    return "FIN";
+  }
+
+  function pillClass(s){
+    if(s === "live") return "pill pill-live";
+    if(s === "scheduled") return "pill pill-pre";
+    return "pill pill-fin";
+  }
+
+  function whenText(m){
+    if(m.status === "live") return `${m.minute}'`;
+    if(m.status === "finished") return "FT";
+    const rem = Math.max(0, (m.start_at ?? 0) - serverTime);
+    return `tra ${rem}s`;
+  }
+
+  function render(){
+    const arr = Array.from(matchMap.values()).sort((a,b)=>Number(a.id)-Number(b.id));
+    grid.innerHTML = arr.map(m => `
+      <a class="card match" href="/match/${m.id}">
+        <div class="row">
+          <div class="teams">${m.home} <span class="vs">vs</span> ${m.away}</div>
+          <div class="${pillClass(m.status)}">${statusLabel(m.status)}</div>
+        </div>
+
+        <div class="row big">
+          <div class="score">${m.score.home} - ${m.score.away}</div>
+          <div class="minute">${whenText(m)}</div>
+        </div>
+
+        <div class="muted">${m.status === 'scheduled' ? 'Programmato' : (m.status === 'finished' ? 'Terminato' : 'In corso')}</div>
+      </a>
+    `).join("");
+  }
+
+  function wsUrl(){
+    const proto = location.protocol === "https:" ? "wss" : "ws";
+    return `${proto}://${location.host}/ws`;
+  }
+
+  const ws = new WebSocket(wsUrl());
+
+  ws.onopen = () => {
+    conn.textContent = "Connesso";
+    conn.className = "pill pill-ok";
+  };
+
+  ws.onclose = () => {
+    conn.textContent = "Disconnesso";
+    conn.className = "pill pill-off";
+  };
+
+  ws.onmessage = (ev) => {
+    const msg = JSON.parse(ev.data);
+    if(msg.server_time !== undefined) serverTime = msg.server_time;
+
+    if(msg.type === "initial_state"){
+      Object.values(msg.matches).forEach(m => matchMap.set(m.id, m));
+      render();
+    }
+
+    if(msg.type === "match_update"){
+      msg.matches.forEach(m => matchMap.set(m.id, m));
+      render();
+    }
+  };
+</script>
+</body>
+</html>

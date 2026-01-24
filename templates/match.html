@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Dettaglio Match</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <div class="container">
+    <a class="back" href="/">← Indietro</a>
+
+    <section class="card">
+      <div class="row">
+        <div class="teams" id="title">Match</div>
+        <div id="badge" class="pill pill-pre">PRE</div>
+      </div>
+
+      <div class="row big">
+        <div id="score" class="score">0 - 0</div>
+        <div id="minute" class="minute">-</div>
+      </div>
+
+      <div id="sub" class="muted"></div>
+    </section>
+
+    <section class="card">
+      <div class="teams">Eventi</div>
+      <div id="events" class="events muted">Nessun evento.</div>
+    </section>
+  </div>
+
+<script>
+  const MATCH_ID = "{{ match_id }}";
+
+  const title = document.getElementById("title");
+  const badge = document.getElementById("badge");
+  const score = document.getElementById("score");
+  const minute = document.getElementById("minute");
+  const sub = document.getElementById("sub");
+  const eventsBox = document.getElementById("events");
+
+  let serverTime = 0;
+
+  function statusLabel(s){
+    if(s === "live") return "LIVE";
+    if(s === "scheduled") return "PRE";
+    return "FIN";
+  }
+
+  function pillClass(s){
+    if(s === "live") return "pill pill-live";
+    if(s === "scheduled") return "pill pill-pre";
+    return "pill pill-fin";
+  }
+
+  function whenText(m){
+    if(m.status === "live") return `${m.minute}'`;
+    if(m.status === "finished") return "FT";
+    const rem = Math.max(0, (m.start_at ?? 0) - serverTime);
+    return `tra ${rem}s`;
+  }
+
+  function render(m){
+    title.textContent = `${m.home} vs ${m.away}`;
+    badge.textContent = statusLabel(m.status);
+    badge.className = pillClass(m.status);
+
+    score.textContent = `${m.score.home} - ${m.score.away}`;
+    minute.textContent = whenText(m);
+
+    sub.textContent = (m.status === "scheduled")
+      ? "Match programmato: partirà automaticamente."
+      : (m.status === "finished" ? "Match terminato." : "Match in corso.");
+
+    const ev = m.events || [];
+    if(ev.length === 0){
+      eventsBox.textContent = "Nessun evento.";
+      eventsBox.className = "events muted";
+      return;
+    }
+
+    eventsBox.className = "events";
+    eventsBox.innerHTML = ev.slice().reverse().map(e =>
+      `<div class="event">${e.minute}' ${e.text || e.type}</div>`
+    ).join("");
+  }
+
+  function wsUrl(){
+    const proto = location.protocol === "https:" ? "wss" : "ws";
+    return `${proto}://${location.host}/ws`;
+  }
+
+  const ws = new WebSocket(wsUrl());
+
+  ws.onmessage = (ev) => {
+    const msg = JSON.parse(ev.data);
+    if(msg.server_time !== undefined) serverTime = msg.server_time;
+
+    if(msg.type === "initial_state"){
+      const m = msg.matches[MATCH_ID];
+      if(m) render(m);
+    }
+
+    if(msg.type === "match_update"){
+      const m = msg.matches.find(x => x.id === MATCH_ID);
+      if(m) render(m);
+    }
+  };
+</script>
+</body>
+</html>
