@@ -5,7 +5,15 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>LiveScore</title>
   <link rel="stylesheet" href="/static/style.css">
+  <style>
+    table.standings { width:100%; border-collapse: collapse; margin-top: 10px; }
+    table.standings th, table.standings td { padding: 10px 8px; border-top: 1px solid rgba(255,255,255,.10); }
+    table.standings th { font-size: 12px; color: rgba(238,247,241,.85); text-align:left; }
+    table.standings td.num, table.standings th.num { text-align:right; font-variant-numeric: tabular-nums; }
+    table.standings td.pos { width:34px; font-weight: 950; color: #c7ff3d; }
+  </style>
 </head>
+
 <body>
   <div class="container">
     <header class="topbar">
@@ -13,18 +21,31 @@
         <span class="brand-dot"></span>
         <span>LiveScore</span>
       </div>
+
+      <div id="md" class="pill">Giornata -/38</div>
       <div id="conn" class="pill pill-off">Disconnesso</div>
     </header>
 
     <main id="grid" class="grid"></main>
+
+    <section id="standings-card" class="card" style="margin-top:14px; display:none;">
+      <div class="row">
+        <div class="teams">Classifica</div>
+        <div class="muted">Aggiornata a fine giornata</div>
+      </div>
+      <div id="standings-wrap"></div>
+    </section>
   </div>
 
 <script>
   const grid = document.getElementById("grid");
   const conn = document.getElementById("conn");
+  const md = document.getElementById("md");
 
-  let serverTime = 0;
-  const matchMap = new Map();
+  const standingsCard = document.getElementById("standings-card");
+  const standingsWrap = document.getElementById("standings-wrap");
+
+  let currentMatchday = null;
 
   function statusLabel(s){
     if(s === "live") return "LIVE";
@@ -41,14 +62,13 @@
   function whenText(m){
     if(m.status === "live") return `${m.minute}'`;
     if(m.status === "finished") return "FT";
-    const rem = Math.max(0, (m.start_at ?? 0) - serverTime);
-    return `tra ${rem}s`;
+    return "-";
   }
 
-  function render(){
-    const arr = Array.from(matchMap.values()).sort((a,b)=>Number(a.id)-Number(b.id));
+  function renderMatches(list){
+    const arr = list.slice().sort((a,b)=>Number(a.id)-Number(b.id));
     grid.innerHTML = arr.map(m => `
-      <a class="card match" href="/match/${m.id}">
+      <a class="card match" href="#">
         <div class="row">
           <div class="teams">${m.home} <span class="vs">vs</span> ${m.away}</div>
           <div class="${pillClass(m.status)}">${statusLabel(m.status)}</div>
@@ -59,9 +79,54 @@
           <div class="minute">${whenText(m)}</div>
         </div>
 
-        <div class="muted">${m.status === 'scheduled' ? 'Programmato' : (m.status === 'finished' ? 'Terminato' : 'In corso')}</div>
+        <div class="muted">${m.status === 'finished' ? 'Terminato' : 'In corso'}</div>
       </a>
     `).join("");
+  }
+
+  function renderStandings(rows){
+    standingsCard.style.display = "block";
+    standingsWrap.innerHTML = `
+      <table class="standings">
+        <thead>
+          <tr>
+            <th class="pos">#</th>
+            <th>Squadra</th>
+            <th class="num">PT</th>
+            <th class="num">G</th>
+            <th class="num">V</th>
+            <th class="num">N</th>
+            <th class="num">P</th>
+            <th class="num">DR</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rows.map(r => `
+            <tr>
+              <td class="pos">${r.pos}</td>
+              <td>${r.name}</td>
+              <td class="num"><b>${r.pts}</b></td>
+              <td class="num">${r.played}</td>
+              <td class="num">${r.wins}</td>
+              <td class="num">${r.draws}</td>
+              <td class="num">${r.losses}</td>
+              <td class="num">${r.gd}</td>
+            </tr>
+          `).join("")}
+        </tbody>
+      </table>
+    `;
+  }
+
+  function applyState(msg){
+    if(msg.current_matchday !== undefined) currentMatchday = msg.current_matchday;
+    md.textContent = `Giornata ${currentMatchday}/38`;
+
+    // CHIAVE: rimpiazzo totale ad ogni messaggio -> i match vecchi spariscono
+    const list = Array.isArray(msg.matches) ? msg.matches : Object.values(msg.matches || {});
+    renderMatches(list);
+
+    if(msg.standings) renderStandings(msg.standings);
   }
 
   function wsUrl(){
@@ -83,16 +148,8 @@
 
   ws.onmessage = (ev) => {
     const msg = JSON.parse(ev.data);
-    if(msg.server_time !== undefined) serverTime = msg.server_time;
-
-    if(msg.type === "initial_state"){
-      Object.values(msg.matches).forEach(m => matchMap.set(m.id, m));
-      render();
-    }
-
-    if(msg.type === "match_update"){
-      msg.matches.forEach(m => matchMap.set(m.id, m));
-      render();
+    if(msg.type === "initial_state" || msg.type === "match_update"){
+      applyState(msg);
     }
   };
 </script>
