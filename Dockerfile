@@ -11,5 +11,14 @@ EXPOSE 8888
 
 CMD ["python", "server.py"]
 
+# Build immagine
 #docker build -t torneo-app .
+
+# Avvio container (porta 8888)
 #docker run --rm -p 8888:8888 torneo-app
+
+# (opzionale) verifiche
+#docker images
+#docker ps
+
+
