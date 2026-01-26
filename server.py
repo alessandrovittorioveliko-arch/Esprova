@@ -1,8 +1,11 @@
+import os
 import asyncio
 import json
 import random
+
 import tornado.web
 import tornado.websocket
+
 
 # =============================================================================
 # teams.json (robusto: BOM + vuoto)
@@ -14,12 +17,13 @@ def flatten_players(team: dict) -> dict:
         out = []
         for _, lst in players.items():
             out.extend(lst)
-        team["players"] = out  # non taglio: utile se poi vuoi eventi più vari
+        team["players"] = out
     elif not isinstance(players, list):
         team["players"] = []
     return team
 
-def load_teams(path="teams.json") -> list[dict]:
+
+def load_teams(path: str) -> list[dict]:
     with open(path, "r", encoding="utf-8-sig") as f:  # utf-8-sig rimuove BOM
         raw = f.read().strip()
     if not raw:
@@ -27,11 +31,19 @@ def load_teams(path="teams.json") -> list[dict]:
     data = json.loads(raw)
     return [flatten_players(t) for t in data["teams"]]
 
-teams_db = load_teams("teams.json")  # id, name, strength, players... [file:5]
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+TEAMS_PATH = os.path.join(BASE_DIR, "teams.json")
+TEMPLATES_DIR = os.path.join(BASE_DIR, "templates")
+STATIC_DIR = os.path.join(BASE_DIR, "static")
+
+teams_db = load_teams(TEAMS_PATH)
+
 if len(teams_db) != 20:
     raise ValueError(f"Attese 20 squadre, trovate: {len(teams_db)}")
 
 teams_by_id = {t["id"]: t for t in teams_db}
+
 
 # =============================================================================
 # Calendario round-robin (38 giornate)
@@ -55,16 +67,18 @@ def round_robin_pairings(team_ids: list[str]) -> list[list[tuple[str, str]]]:
         arr = [fixed] + rest
     return rounds
 
+
 team_ids = [t["id"] for t in teams_db]
 first_leg = round_robin_pairings(team_ids)
 second_leg = [[(away, home) for (home, away) in md] for md in first_leg]
 calendar = first_leg + second_leg  # 38 giornate
 
+
 # =============================================================================
 # Stato match (in memoria)
 # =============================================================================
 
-clients = set()
+clients: set[tornado.websocket.WebSocketHandler] = set()
 
 current_matchday = 1
 match_id_counter = 1
@@ -92,8 +106,10 @@ def create_match(matchday: int, home_id: str, away_id: str) -> dict:
         "events": [],
         "_standings_applied": False,
     }
+
     match_id_counter += 1
     return m
+
 
 for md_index, pairs in enumerate(calendar, start=1):
     match_ids_by_matchday[md_index] = []
@@ -102,7 +118,8 @@ for md_index, pairs in enumerate(calendar, start=1):
         matches[m["id"]] = m
         match_ids_by_matchday[md_index].append(m["id"])
 
-def start_matchday(md: int):
+
+def start_matchday(md: int) -> None:
     for mid in match_ids_by_matchday[md]:
         m = matches[mid]
         m["status"] = "live"
@@ -111,26 +128,30 @@ def start_matchday(md: int):
         m["events"] = []
         m["_standings_applied"] = False
 
-def get_matchday_matches(md: int) -> list[dict]:
-    return [matches[mid] for mid in match_ids_by_matchday[md]]
 
 def match_public(m: dict) -> dict:
-    # payload leggero (sufficiente per index)
+    # include events così match.html può mostrarli
     return {
         "id": m["id"],
         "matchday": m["matchday"],
+        "home_id": m["home_id"],
+        "away_id": m["away_id"],
         "home": m["home"],
         "away": m["away"],
         "status": m["status"],
         "minute": m["minute"],
         "score": m["score"],
+        "events": m["events"],
     }
+
 
 def match_public_list(md: int) -> list[dict]:
     return [match_public(matches[mid]) for mid in match_ids_by_matchday[md]]
 
+
 # parte giornata 1
 start_matchday(current_matchday)
+
 
 # =============================================================================
 # Classifica (aggiornata a fine giornata)
@@ -151,7 +172,8 @@ standings = {
     for tid in teams_by_id
 }
 
-def apply_match_to_standings(m: dict):
+
+def apply_match_to_standings(m: dict) -> None:
     if m.get("_standings_applied"):
         return
 
@@ -187,8 +209,9 @@ def apply_match_to_standings(m: dict):
 
     m["_standings_applied"] = True
 
+
 def standings_table() -> list[dict]:
-    def key(r):
+    def key(r: dict):
         gd = r["goals_for"] - r["goals_against"]
         return (r["points"], gd, r["goals_for"], -r["goals_against"], r["name"])
 
@@ -211,13 +234,14 @@ def standings_table() -> list[dict]:
         })
     return out
 
+
 # =============================================================================
-# Simulazione (backend gestisce tempo/punteggio/eventi) [file:1]
+# Simulazione eventi
 # =============================================================================
 
 EVENT_PROB = {"goal": 0.030, "yellow": 0.020, "red": 0.003}
 
-def clamp(x, lo, hi):
+def clamp(x: float, lo: float, hi: float) -> float:
     return max(lo, min(hi, x))
 
 def team_bias(home_strength: int, away_strength: int) -> float:
@@ -228,10 +252,10 @@ def pick_player(team_id: str) -> str:
     plist = teams_by_id[team_id].get("players") or []
     return random.choice(plist) if plist else "Giocatore"
 
-def add_event(m: dict, ev_type: str, side: str, text: str):
+def add_event(m: dict, ev_type: str, side: str, text: str) -> None:
     m["events"].append({"minute": m["minute"], "type": ev_type, "team": side, "text": text})
 
-def simulate_minute(m: dict):
+def simulate_minute(m: dict) -> None:
     bias = team_bias(m["home_strength"], m["away_strength"])
 
     if random.random() < EVENT_PROB["goal"]:
@@ -253,7 +277,8 @@ def simulate_minute(m: dict):
         player = pick_player(tid)
         add_event(m, "red", side, f"🟥 Espulsione: {player}")
 
-async def broadcast(payload: dict):
+
+async def broadcast(payload: dict) -> None:
     if not clients:
         return
     msg = json.dumps(payload)
@@ -263,7 +288,8 @@ async def broadcast(payload: dict):
         except Exception:
             clients.discard(c)
 
-async def simulate_loop():
+
+async def simulate_loop() -> None:
     global current_matchday
 
     while True:
@@ -273,7 +299,6 @@ async def simulate_loop():
 
         live_ids = match_ids_by_matchday[current_matchday]
 
-        # simula 1 minuto per tutte le 10 partite della giornata corrente
         for mid in live_ids:
             m = matches[mid]
             if m["status"] != "live":
@@ -283,7 +308,6 @@ async def simulate_loop():
             if m["minute"] >= 90:
                 m["status"] = "finished"
 
-        # fine giornata -> aggiorna classifica e passa alla successiva
         if all(matches[mid]["status"] == "finished" for mid in live_ids):
             for mid in live_ids:
                 apply_match_to_standings(matches[mid])
@@ -297,11 +321,12 @@ async def simulate_loop():
         await broadcast({
             "type": "match_update",
             "current_matchday": current_matchday,
-            "matches": match_public_list(current_matchday),  # SEMPRE solo la giornata corrente
+            "matches": match_public_list(current_matchday),
             "matchday_switched": switched_from is not None,
             "finished_matchday": switched_from,
-            "standings": standings_table() if standings_changed else None
+            "standings": standings_table() if standings_changed else None,
         })
+
 
 # =============================================================================
 # Tornado Handlers
@@ -311,8 +336,14 @@ class MainHandler(tornado.web.RequestHandler):
     def get(self):
         self.render("index.html")
 
+
+class MatchHandler(tornado.web.RequestHandler):
+    def get(self):
+        self.render("match.html")
+
+
 class MatchesWebSocket(tornado.websocket.WebSocketHandler):
-    def check_origin(self, origin):
+    def check_origin(self, origin: str) -> bool:
         return True
 
     def open(self):
@@ -324,26 +355,33 @@ class MatchesWebSocket(tornado.websocket.WebSocketHandler):
             "type": "initial_state",
             "current_matchday": current_matchday,
             "matches": match_public_list(current_matchday),
-            "standings": standings_table()
+            "standings": standings_table(),
+            "server_time": 0,
         }))
 
     def on_close(self):
         clients.discard(self)
 
+
 async def main():
     app = tornado.web.Application(
         [
             (r"/", MainHandler),
+            (r"/match", MatchHandler),
+            (r"/match.html", MatchHandler),  # comodo se nel link hai ancora match.html
             (r"/ws", MatchesWebSocket),
-            (r"/static/(.*)", tornado.web.StaticFileHandler, {"path": "static"}),
+            (r"/static/(.*)", tornado.web.StaticFileHandler, {"path": STATIC_DIR}),
         ],
-        template_path="templates",
-        debug=True
+        template_path=TEMPLATES_DIR,
+        debug=True,
     )
+
     app.listen(8888)
-    print("✅ http://localhost:8888  |  WS: ws://localhost:8888/ws")
+    print("✅ http://localhost:8888 | WS: ws://localhost:8888/ws")
+
     asyncio.create_task(simulate_loop())
     await asyncio.Event().wait()
+
 
 if __name__ == "__main__":
     asyncio.run(main())
