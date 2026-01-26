@@ -4,8 +4,12 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>LiveScore</title>
+  <!-- Titolo della scheda del browser -->
   <link rel="stylesheet" href="/static/style.css">
+  <!-- Carica il CSS principale servito dal server su /static/style.css -->
+
   <style>
+    /* CSS “inline” solo per la tabella classifica (si aggiunge al CSS esterno) */
     table.standings { width:100%; border-collapse: collapse; margin-top: 10px; }
     table.standings th, table.standings td { padding: 10px 8px; border-top: 1px solid rgba(255,255,255,.10); }
     table.standings th { font-size: 12px; color: rgba(238,247,241,.85); text-align:left; }
@@ -17,56 +21,79 @@
 <body>
   <div class="container">
     <header class="topbar">
+      <!-- Barra in alto: brand + info giornata + stato connessione -->
       <div class="brand">
         <span class="brand-dot"></span>
         <span>LiveScore</span>
       </div>
-
       <div id="md" class="pill">Giornata -/38</div>
+      <!-- mostra la giornata corrente. Parte con placeholder "-/38". -->
       <div id="conn" class="pill pill-off">Disconnesso</div>
+      <!-- mostra lo stato del WebSocket (off/ok) -->
     </header>
 
     <main id="grid" class="grid"></main>
+    <!-- Contenitore dove JS inserirà (renderizzerà) tutte le card delle partite -->
 
     <section id="standings-card" class="card" style="margin-top:14px; display:none;">
+      <!-- Card classifica: di default nascosta (display:none), verrà mostrata quando arrivano dati standings -->
+
       <div class="row">
         <div class="teams">Classifica</div>
         <div class="muted">Aggiornata a fine giornata</div>
       </div>
+
       <div id="standings-wrap"></div>
+      <!-- Contenitore dove JS inserirà l’HTML della tabella classifica -->
     </section>
   </div>
 
 <script>
+
   const grid = document.getElementById("grid");
+  // Dove verranno disegnate le partite
+
   const conn = document.getElementById("conn");
+  // Mostra lo stato connessione WebSocket (Connesso/Disconnesso)
+
   const md = document.getElementById("md");
+  // Mostra la giornata
 
   const standingsCard = document.getElementById("standings-card");
+  // Card della classifica (da mostrare/nascondere)
+
   const standingsWrap = document.getElementById("standings-wrap");
+  // Dove inserire il markup della tabella classifica
 
   let currentMatchday = null;
+  // Variabile JS con la giornata corrente (arriva dal server)
 
   function statusLabel(s){
+    // Converte lo stato interno in una label breve per l’utente
     if(s === "live") return "LIVE";
-    if(s === "scheduled") return "PRE";
-    return "FIN";
+    if(s === "scheduled") return "PRE"; // pre-partita
+    return "FIN"; // finished
   }
 
   function pillClass(s){
+    // Sceglie la classe CSS della pill in base allo stato (colori/stile)
     if(s === "live") return "pill pill-live";
     if(s === "scheduled") return "pill pill-pre";
     return "pill pill-fin";
   }
 
   function whenText(m){
-    if(m.status === "live") return `${m.minute}'`;
-    if(m.status === "finished") return "FT";
-    return "-";
+    // Sceglie cosa mostrare “al posto del minuto”
+    if(m.status === "live") return `${m.minute}'`; // es: 37'
+    if(m.status === "finished") return "FT";       // full time
+    return "-";                                    // scheduled o sconosciuto
   }
 
   function renderMatches(list){
+    // Copia e ordina per id (per avere un ordine stabile)
     const arr = list.slice().sort((a,b)=>Number(a.id)-Number(b.id));
+
+    // Rimpiazza completamente l’HTML della griglia con tutte le card
     grid.innerHTML = arr.map(m => `
       <a class="card match" href="match.html?matchid=${m.id}"">
         <div class="row">
@@ -74,10 +101,12 @@
           <div class="${pillClass(m.status)}">${statusLabel(m.status)}</div>
         </div>
 
+
         <div class="row big">
           <div class="score">${m.score.home} - ${m.score.away}</div>
           <div class="minute">${whenText(m)}</div>
         </div>
+
 
         <div class="muted">${m.status === 'finished' ? 'Terminato' : 'In corso'}</div>
       </a>
@@ -85,7 +114,10 @@
   }
 
   function renderStandings(rows){
+    // Mostra la card classifica (prima era display:none)
     standingsCard.style.display = "block";
+
+    // Inserisce una tabella completa, rigenerandola tutta
     standingsWrap.innerHTML = `
       <table class="standings">
         <thead>
@@ -118,37 +150,56 @@
     `;
   }
 
+  //  Applica lo stato ricevuto dal server
   function applyState(msg){
+    // Se il server manda la giornata corrente, aggiornala
     if(msg.current_matchday !== undefined) currentMatchday = msg.current_matchday;
+
+    // Aggiorna la pill “Giornata X/38”
     md.textContent = `Giornata ${currentMatchday}/38`;
 
-    // CHIAVE: rimpiazzo totale ad ogni messaggio -> i match vecchi spariscono
+    // Ogni messaggio contiene lo stato attuale: tu ridisegni tutto da zero.
+    // Così eviti di fare patch complicate su singoli elementi.
     const list = Array.isArray(msg.matches) ? msg.matches : Object.values(msg.matches || {});
     renderMatches(list);
 
+    // Se il server include la classifica, renderizzala
     if(msg.standings) renderStandings(msg.standings);
   }
 
+  // Connessione WebSocket
+
   function wsUrl(){
+    // Se la pagina è https, il websocket deve essere wss (sicuro),
+    // altrimenti ws (non cifrato)
     const proto = location.protocol === "https:" ? "wss" : "ws";
+
     return `${proto}://${location.host}/ws`;
   }
 
   const ws = new WebSocket(wsUrl());
+  // Apre la connessione persistente al server
 
   ws.onopen = () => {
+    // Scatta quando la connessione è stabilita
     conn.textContent = "Connesso";
     conn.className = "pill pill-ok";
   };
 
   ws.onclose = () => {
+    // Scatta quando la connessione viene chiusa (server giù, refresh, rete, ecc.)
     conn.textContent = "Disconnesso";
     conn.className = "pill pill-off";
   };
 
   ws.onmessage = (ev) => {
+    // Ogni messaggio è una stringa JSON inviata dal server
     const msg = JSON.parse(ev.data);
+
+    // Filtra i messaggi “utili” per la UI
     if(msg.type === "initial_state" || msg.type === "match_update"){
+      // initial_state: stato iniziale appena ti connetti
+      // match_update: aggiornamenti successivi
       applyState(msg);
     }
   };
