@@ -31,7 +31,8 @@
   </div>
 
 <script>
-  const MATCH_ID = "{{ match_id }}";
+  const params = new URLSearchParams(location.search);
+  const MATCHID = params.get("matchid"); // "11"
 
   const title = document.getElementById("title");
   const badge = document.getElementById("badge");
@@ -39,6 +40,7 @@
   const minute = document.getElementById("minute");
   const sub = document.getElementById("sub");
   const eventsBox = document.getElementById("events");
+
 
   let serverTime = 0;
 
@@ -91,22 +93,20 @@
     return `${proto}://${location.host}/ws`;
   }
 
-  const ws = new WebSocket(wsUrl());
+const ws = new WebSocket(wsUrl());
 
-  ws.onmessage = (ev) => {
-    const msg = JSON.parse(ev.data);
-    if(msg.server_time !== undefined) serverTime = msg.server_time;
+ws.onmessage = (ev) => {
+  const msg = JSON.parse(ev.data);
 
-    if(msg.type === "initial_state"){
-      const m = msg.matches[MATCH_ID];
-      if(m) render(m);
-    }
+  if (msg.type === "initial_state" || msg.type === "match_update") {
+    const m = Array.isArray(msg.matches)
+      ? msg.matches.find(x => x.id === MATCHID)
+      : msg.matches[MATCHID];
 
-    if(msg.type === "match_update"){
-      const m = msg.matches.find(x => x.id === MATCH_ID);
-      if(m) render(m);
-    }
-  };
+    if (m) render(m);
+  }
+};
+
 </script>
 </body>
 </html>
