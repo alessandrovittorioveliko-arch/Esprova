@@ -68,7 +68,7 @@
   function renderMatches(list){
     const arr = list.slice().sort((a,b)=>Number(a.id)-Number(b.id));
     grid.innerHTML = arr.map(m => `
-      <a class="card match" href="#">
+      <a class="card match" href="match.html?matchid=${m.id}"">
         <div class="row">
           <div class="teams">${m.home} <span class="vs">vs</span> ${m.away}</div>
           <div class="${pillClass(m.status)}">${statusLabel(m.status)}</div>
