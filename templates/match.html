@@ -1,38 +1,59 @@
 <!DOCTYPE html>
 <html lang="it">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Dettaglio Match</title>
+  <!-- Titolo tab -->
   <link rel="stylesheet" href="/static/style.css">
+  <!-- CSS servito dal server (StaticFileHandler su /static) -->
 </head>
+
 <body>
   <div class="container">
-    <a class="back" href="/">← Indietro</a>
+    <a class="back" href="/">Indietro</a>
+    <!-- Torna alla home (lista match) -->
 
     <section class="card">
+      <!-- Card principale con info match -->
+
       <div class="row">
         <div class="teams" id="title">Match</div>
+        <!-- Titolo dinamico: "Home vs Away" -->
+
         <div id="badge" class="pill pill-pre">PRE</div>
+        <!-- Badge stato: PRE / LIVE / FIN (cambiato via JS) -->
       </div>
 
       <div class="row big">
         <div id="score" class="score">0 - 0</div>
+        <!-- Punteggio dinamico -->
+
         <div id="minute" class="minute">-</div>
+        <!-- Minuto dinamico (es. 37') oppure FT -->
       </div>
 
       <div id="sub" class="muted"></div>
+      <!-- Sottotesto dinamico: programmato / in corso / terminato -->
     </section>
 
     <section class="card">
+      <!-- Card eventi -->
+
       <div class="teams">Eventi</div>
       <div id="events" class="events muted">Nessun evento.</div>
+      <!-- Lista eventi: goal/giallo/rosso -->
     </section>
   </div>
 
 <script>
+  //  Leggo quale match mostrare
+
   const params = new URLSearchParams(location.search);
-  const MATCHID = params.get("matchid"); // "11"
+  // Legge la query string: es. ?matchid=12
+
+  const MATCHID = params.get("matchid") || "1";
+  // Se non c’è matchid nella URL, usa "1" come "fallback"
 
   const title = document.getElementById("title");
   const badge = document.getElementById("badge");
@@ -42,39 +63,50 @@
   const eventsBox = document.getElementById("events");
 
 
-  let serverTime = 0;
-
   function statusLabel(s){
+    // Converte lo stato in testo corto
     if(s === "live") return "LIVE";
     if(s === "scheduled") return "PRE";
     return "FIN";
   }
 
   function pillClass(s){
+    // Classi CSS in base allo stato
     if(s === "live") return "pill pill-live";
     if(s === "scheduled") return "pill pill-pre";
     return "pill pill-fin";
   }
 
   function whenText(m){
+    // Cosa mostrare come “minuto”
     if(m.status === "live") return `${m.minute}'`;
     if(m.status === "finished") return "FT";
-    const rem = Math.max(0, (m.start_at ?? 0) - serverTime);
-    return `tra ${rem}s`;
+    return "-";
   }
 
+  // 4) Render del match
+
   function render(m){
+    // Titolo in alto: "Home vs Away"
     title.textContent = `${m.home} vs ${m.away}`;
+
+    // Badge: testo + classe (colore)
     badge.textContent = statusLabel(m.status);
     badge.className = pillClass(m.status);
 
+    // Punteggio
     score.textContent = `${m.score.home} - ${m.score.away}`;
+
+    // Minuto / FT / countdown
     minute.textContent = whenText(m);
 
-    sub.textContent = (m.status === "scheduled")
-      ? "Match programmato: partirà automaticamente."
-      : (m.status === "finished" ? "Match terminato." : "Match in corso.");
+    // Sottotesto esplicativo
+    sub.textContent =
+      m.status === "scheduled" ? "Match programmato: partirà automaticamente." :
+      m.status === "finished"  ? "Match terminato." :
+                                 "Match in corso.";
 
+    // Eventi: se non ce ne sono, testo “Nessun evento”
     const ev = m.events || [];
     if(ev.length === 0){
       eventsBox.textContent = "Nessun evento.";
@@ -82,31 +114,50 @@
       return;
     }
 
+    // Se ci sono eventi:
+    // - creo una lista HTML (mostro prima gli eventi più recenti)
     eventsBox.className = "events";
-    eventsBox.innerHTML = ev.slice().reverse().map(e =>
-      `<div class="event">${e.minute}' ${e.text || e.type}</div>`
-    ).join("");
+    eventsBox.innerHTML = ev
+      .slice()
+      .reverse()
+      .map(e => `
+        <div class="event">
+          <span class="min">${e.minute}'</span>
+          <span class="txt">${e.text}</span>
+          <span class="type">${e.type}</span>
+        </div>
+      `)
+      .join("");
   }
 
+  // Connessione WebSocket
   function wsUrl(){
+    // ws / wss in base al protocollo della pagina
     const proto = location.protocol === "https:" ? "wss" : "ws";
     return `${proto}://${location.host}/ws`;
+    // Endpoint WebSocket del server Tornado
   }
 
-const ws = new WebSocket(wsUrl());
+  const ws = new WebSocket(wsUrl());
 
-ws.onmessage = (ev) => {
-  const msg = JSON.parse(ev.data);
+  ws.onmessage = (ev) => {
+    // Ogni messaggio arriva come JSON string
+    const msg = JSON.parse(ev.data);
 
-  if (msg.type === "initial_state" || msg.type === "match_update") {
-    const m = Array.isArray(msg.matches)
-      ? msg.matches.find(x => x.id === MATCHID)
-      : msg.matches[MATCHID];
+    // Considero solo i messaggi “di stato”
+    // (il server usa "initial_state" e "match_update")
+    if(msg.type === "initial_state" || msg.type === "match_update"){
 
-    if (m) render(m);
-  }
-};
+      // msg.matches è la lista dei match della giornata corrente 
+      // Qui prendo SOLO il match che mi interessa, quello con id = MATCHID.
+      const m = Array.isArray(msg.matches)
+        ? msg.matches.find(x => x.id === MATCHID)
+        : msg.matches?.[MATCHID];
 
+      // Se questo match è presente nel messaggio, aggiorno la UI
+      if(m) render(m);
+    }
+  };
 </script>
 </body>
 </html>
