@@ -15,10 +15,13 @@ CMD ["python", "server.py"]
 #docker build -t torneo-app .
 
 # Avvio container (porta 8888)
+#docker run -p 8888:8888 torneo-app
+
 #docker run --rm -p 8888:8888 torneo-app
 
 # (opzionale) verifiche
 #docker images
 #docker ps
+
 
 
