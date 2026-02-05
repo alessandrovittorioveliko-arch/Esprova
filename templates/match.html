@@ -84,8 +84,7 @@
     return "-";
   }
 
-  // 4) Render del match
-
+  //Render dettagli match
   function render(m){
     // Titolo in alto: "Home vs Away"
     title.textContent = `${m.home} vs ${m.away}`;
@@ -106,7 +105,7 @@
       m.status === "finished"  ? "Match terminato." :
                                  "Match in corso.";
 
-    // Eventi: se non ce ne sono, testo “Nessun evento”
+    // Rendering eventi: se non ce ne sono, testo “Nessun evento”
     const ev = m.events || [];
     if(ev.length === 0){
       eventsBox.textContent = "Nessun evento.";
@@ -138,6 +137,7 @@
     // Endpoint WebSocket del server Tornado
   }
 
+  //connessione ws
   const ws = new WebSocket(wsUrl());
 
   ws.onmessage = (ev) => {
