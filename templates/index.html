@@ -162,13 +162,15 @@
     // Così eviti di fare patch complicate su singoli elementi.
     const list = Array.isArray(msg.matches) ? msg.matches : Object.values(msg.matches || {});
     renderMatches(list);
+    //renderizza tutte le partite
 
     // Se il server include la classifica, renderizzala
     if(msg.standings) renderStandings(msg.standings);
   }
 
   // Connessione WebSocket
-
+  
+  //Costruzione URL ws
   function wsUrl(){
     // Se la pagina è https, il websocket deve essere wss (sicuro),
     // altrimenti ws (non cifrato)
